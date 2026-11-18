@@ -1,0 +1,77 @@
+{
+  "private": true,
+  "name": "@service/cart",
+  "version": "0.0.1",
+  "description": "Sellgar per-shop cart service",
+  "author": "Viktor Pyatakov",
+  "license": "UNLICENSED",
+  "scripts": {
+    "prebuild": "rm -rf dist tsconfig.build.tsbuildinfo",
+    "build": "yarn workspace @sellgar/outbox build && yarn prebuild && nest build",
+    "start": "nest start",
+    "start:dev": "yarn prebuild && nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:cov": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
+    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config test/jest-integration.json --runInBand",
+    "test:smoke": "ts-node --project tsconfig.test.json test/rmq-smoke.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.2.0",
+    "@nestjs/config": "12.0.1",
+    "@nestjs/core": "12.2.0",
+    "@nestjs/microservices": "12.2.0",
+    "@nestjs/platform-express": "12.2.0",
+    "@nestjs/typeorm": "12.0.2",
+    "@sellgar/outbox": "0.0.1",
+    "amqp-connection-manager": "5.0.1",
+    "amqplib": "2.2.0",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1",
+    "pg": "8.23.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "typeorm": "1.1.2",
+    "uuid": "14.0.3"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "12.0.8",
+    "@nestjs/schematics": "12.0.7",
+    "@nestjs/testing": "12.2.0",
+    "@types/amqplib": "0.10.8",
+    "@types/jest": "30.0.0",
+    "@types/node": "26.6.5",
+    "jest": "30.5.2",
+    "source-map-support": "0.5.21",
+    "ts-jest": "29.4.15",
+    "ts-loader": "9.6.2",
+    "ts-node": "10.9.2",
+    "tsconfig-paths": "4.2.0",
+    "typescript": "6.0.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
+  },
+  "packageManager": "yarn@4.18.0",
+  "workspaces": [
+    "library/*"
+  ]
+}
