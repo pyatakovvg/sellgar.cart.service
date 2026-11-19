@@ -6,7 +6,7 @@ Identity. Тип владельца, контакты пользователя, 
 
 ## Запуск
 
-NestJS/RMQ, PostgreSQL, две очереди в одном Nest-контексте; HTTP listen отсутствует.
+NestJS/RMQ, PostgreSQL, две очереди в одном Nest-контексте; внутренний HTTP `/health` на 8080 проверяет PostgreSQL и оба RMQ consumer.
 Версии runtime/dependencies соответствуют действующему Store Service. Структура:
 `code/src/api/v1/cart/{controller,service,repository,entity,model}`, `code/src/integration`,
 `code/src/database/migrations`. Схема изменяется только явными миграциями.
