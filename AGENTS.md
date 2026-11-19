@@ -12,7 +12,15 @@ Cart owns carts, quantities and its participation in Order checkout. Source: wor
 - Outbox claim orders each (aggregateType, aggregateUuid) by PostgreSQL aggregate_version, preserving bigint precision. Any lower unpublished version (including backoff, processing or dead) blocks successors; other aggregates continue. Relay drains successive claims within the total batchSize. Verify with yarn test:integration outbox-ordering.
 - Closure locks owner, cart mutation locks cart, checkout locks owner then cart. Preserve cancellation tombstones.
 - Tests use only random PostgreSQL schemas; never reset public data.
-- Two RMQ microservices share one Nest context; no HTTP listen.
+- Two RMQ microservices share one Nest context; operational HTTP /health on 8080 only.
 - Tests: yarn build; yarn test --runInBand; yarn test:integration; yarn test:smoke.
 
 - Identity integration consumes identity.owner.closed.v1 through the durable event queue and delegates to existing closeOwner. ACK follows commit; eventUuid is the internal deduplication key. Cart does not issue/inspect sessions or determine guest/account types. Provision the consumer binding before the Identity lifecycle publisher.
+
+## Деплой
+
+- Исходники и Yarn root находятся в `code/`; команды выполнять оттуда.
+- Dockerfile, `.github/` CI и `helm/` находятся в корне. Рабочая ветка `development`, выпуск `master`.
+- CI публикует проверенный image и Helm OCI-пакет среды; Argo автоматически отслеживает dev-пакеты. Prod публикуется только ручным release workflow.
+- ConfigMap монтирует `/app/.env`, credentials поступают только из Secret refs. Одна реплика, внутренний порт 8080.
+- Явные миграции запускает Job перед Deployment; synchronize отключён.

@@ -1,3 +1,4 @@
+import { HealthModule } from './health/health.module';
 import { Module } from '@nestjs/common';
 import { IdentityEventsController } from './integration/identity/identity-events.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -37,6 +38,7 @@ const clients = [
 
 @Module({
   imports: [
+    HealthModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',

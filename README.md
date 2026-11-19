@@ -8,8 +8,8 @@ Identity. Тип владельца, контакты пользователя, 
 
 NestJS/RMQ, PostgreSQL, две очереди в одном Nest-контексте; HTTP listen отсутствует.
 Версии runtime/dependencies соответствуют действующему Store Service. Структура:
-`src/api/v1/cart/{controller,service,repository,entity,model}`, `src/integration`,
-`src/database/migrations`. Схема изменяется только явными миграциями.
+`code/src/api/v1/cart/{controller,service,repository,entity,model}`, `code/src/integration`,
+`code/src/database/migrations`. Схема изменяется только явными миграциями.
 
 ```bash
 cp .env.example .env
@@ -224,7 +224,7 @@ Order/Payment orchestration или резервов в Cart. Данные Identi
 ## Проверки
 
 Общая инфраструктура outbox подключена workspace-пакетом `@sellgar/outbox` из
-nested submodule `library/sellgar.outbox.library`. AppModule регистрирует модуль
+nested submodule `code/library/sellgar.outbox.library`. AppModule регистрирует модуль
 один раз с CART_OUTBOX_OPTIONS. CartEventsRepository формирует доменное событие
 и передаёт текущий EntityManager в OutboxWriter; локальных relay/repository нет.
 Настройки сохраняют существующие aggregate_uuid, bigint-версии строкой, envelope
@@ -245,3 +245,11 @@ Store/Product/Shop и публикует тестовые события тол�
 Существующие товары/остатки/пользователи не изменяются. Тест проверяет wire DTO,
 доставку событий, проекции, статусы, идемпотентность, checkout locks, owner closure,
 outbox и dead-letter и удаляет свои ресурсы после завершения.
+
+## Сборка и доставка
+
+Команды Yarn выполняются из `code/`. Dockerfile и `.github/workflows` находятся в корне, конфигурация Kubernetes — в `helm/`. Push в `development` запускает проверки, публикацию образа и Helm OCI-пакета; dev Argo CD автоматически применяет новую версию. Релиз в prod запускается вручную из `master` с digest проверенного кандидата. Prod пока не развёрнут.
+
+Сервер читает `/app/.env` из ConfigMap. Пароли передаются ссылками на Kubernetes Secrets и не включаются в образ или Helm-пакет. Операционный `/health` слушает внутренний порт 8080 и проверяет зависимости.
+
+Миграционный Job выполняется до обновления Deployment. `synchronize` отключён; пустая база поддерживается явными миграциями.

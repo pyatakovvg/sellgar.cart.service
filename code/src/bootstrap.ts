@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { connect } from 'amqplib';
+import { HealthService } from './health/health.service';
 import { AppModule } from './app.module';
 import { RpcHttpExceptionFilter } from './common/rpc-http-exception.filter';
 
@@ -33,7 +34,7 @@ export async function createCartApplication(): Promise<INestApplication> {
     await broker.close();
   }
 
-  app.connectMicroservice<MicroserviceOptions>(
+  const commands = app.connectMicroservice<MicroserviceOptions>(
     {
       transport: Transport.RMQ,
       options: {
@@ -45,7 +46,7 @@ export async function createCartApplication(): Promise<INestApplication> {
     },
     { inheritAppConfig: true },
   );
-  app.connectMicroservice<MicroserviceOptions>(
+  const events = app.connectMicroservice<MicroserviceOptions>(
     {
       transport: Transport.RMQ,
       options: {
@@ -60,6 +61,13 @@ export async function createCartApplication(): Promise<INestApplication> {
       },
     },
     { inheritAppConfig: true },
+  );
+  const health = app.get(HealthService);
+  commands.status.subscribe((status) =>
+    health.setConsumerConnected('commands', status === 'connected' || status === 'unblocked'),
+  );
+  events.status.subscribe((status) =>
+    health.setConsumerConnected('events', status === 'connected' || status === 'unblocked'),
   );
   await app.init();
   await app.startAllMicroservices();
