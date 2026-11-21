@@ -177,7 +177,7 @@ Unavailable rows сохраняются через LEFT JOIN; отсутстви
 ## Проекции и восстановление
 
 Подписки: Store `store.product.created/updated/archived`, `store.inventory.updated`
-(schemaVersion=2); Product `product.created/updated` (producer=product_srv_v2,
+(schemaVersion=2/3); Product `product.created/updated` (producer=product_srv_v2,
 schemaVersion=3); Shop `shop.created/updated` (schemaVersion=3).
 Принимаются оба используемых владельцами имени aggregateId/aggregateUuid, внутреннее
 имя — aggregateUuid. Проверяются producer, schema, identity, версия и связи payload.
@@ -253,3 +253,12 @@ outbox и dead-letter и удаляет свои ресурсы после за�
 Сервер читает `/app/.env` из ConfigMap. Пароли передаются ссылками на Kubernetes Secrets и не включаются в образ или Helm-пакет. Операционный `/health` слушает внутренний порт 8080 и проверяет зависимости.
 
 Миграционный Job выполняется до обновления Deployment. `synchronize` отключён; пустая база поддерживается явными миграциями.
+
+
+## Цены учётных записей
+
+Store владеет ценой конкретной учётки. Проекция accounting_record_snapshot хранит price_uuid,
+price_value numeric(12,2) и currency_code; Store offer цену не задаёт. Одна цена в событии
+не переоценивает соседние учётки. Вход Store Product принимает v3 и старые сообщения v2
+через адаптер; Inventory v2 не меняется. Миграция копирует прежнюю offer-цену к записям,
+а авторитетный bootstrap согласует новые price UUID без сброса версий, корзин и количества.

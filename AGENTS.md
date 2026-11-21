@@ -24,3 +24,7 @@ Cart owns carts, quantities and its participation in Order checkout. Source: wor
 - CI публикует проверенный image и Helm OCI-пакет среды; Argo автоматически отслеживает dev-пакеты. Prod публикуется только ручным release workflow.
 - ConfigMap монтирует `/app/.env`, credentials поступают только из Secret refs. Одна реплика, внутренний порт 8080.
 - Явные миграции запускает Job перед Deployment; synchronize отключён.
+
+- Текущая цена принадлежит accounting_record_snapshot; store_offer_snapshot цену не хранит. Cart читает цену только по recordUuid.
+- Store Product schemaVersion=3 содержит records[].currentPrice; legacy v2 переводится отдельным адаптером из offer.currentPrice. Inventory остаётся v2.
+- Авторитетный Store snapshot равной версии может согласовать price UUID/value/currency после миграции. События равной/старой версии цену не меняют; повтор одинакового snapshot не создаёт уведомления.

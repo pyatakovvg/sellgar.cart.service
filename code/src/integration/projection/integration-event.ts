@@ -39,7 +39,7 @@ export const sources = {
   },
   store_product: {
     producer: 'store_srv',
-    schemaVersion: 2,
+    schemaVersion: 3,
     type: StorePayloadDto,
     events: ['store.product.created', 'store.product.updated', 'store.product.archived'],
   },
@@ -61,7 +61,8 @@ export async function integrationEvent(input: unknown): Promise<IntegrationEvent
   if (
     !contract ||
     contract.producer !== event.producer ||
-    contract.schemaVersion !== event.schemaVersion ||
+    (contract.schemaVersion !== event.schemaVersion &&
+      !(event.aggregateType === 'store_product' && event.schemaVersion === 2)) ||
     !(contract.events as readonly string[]).includes(event.eventType)
   )
     throw new BadRequestException('Unsupported source event contract');

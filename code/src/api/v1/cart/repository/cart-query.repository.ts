@@ -54,7 +54,7 @@ export class CartQueryRepository {
       p.name AS product_name, v.name AS variant_name, v.image_uuid,
       p.status AS product_status, v.status AS variant_status, sp.status AS store_product_status,
       o.status AS offer_status, sp.showing AS product_showing, o.showing AS offer_showing,
-      o.price_uuid, o.price_value::text, o.currency_code, inv.available,
+      ar.price_uuid, ar.price_value::text, ar.currency_code, inv.available,
       sp.shop_uuid, sh.name AS shop_name, sh.source_version AS shop_version,
       p.source_version AS product_version, sp.source_version AS store_version, inv.source_version AS inventory_version,
       EXISTS(SELECT 1 FROM sync_issue si JOIN inbox_event ie USING(event_uuid)

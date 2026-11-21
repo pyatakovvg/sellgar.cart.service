@@ -6,13 +6,14 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
-  IsOptional,
   IsString,
   IsUUID,
   Matches,
   Max,
   Min,
   ValidateNested,
+  ValidateIf,
+  IsDefined,
 } from 'class-validator';
 
 export class SourceImageDto {
@@ -62,7 +63,19 @@ export class SourceClarificationDto {
   @IsString() value: string;
 }
 
+export class SourcePriceDto {
+  @IsUUID() uuid: string;
+  @IsUUID() recordUuid: string;
+  @IsString() @Matches(/^\d{1,10}(\.\d{1,2})?$/) value: string;
+  @IsString() @Matches(/^[A-Z]{3}$/) currencyCode: string;
+}
+
 export class SourceRecordDto {
+  @ValidateIf((_, value) => value !== null)
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => SourcePriceDto)
+  currentPrice: SourcePriceDto | null;
   @IsUUID() uuid: string;
   @IsUUID() offerUuid: string;
   @IsString() article: string;
@@ -74,13 +87,6 @@ export class SourceRecordDto {
   @ValidateNested() @Type(() => InventoryPayloadDto) inventory: InventoryPayloadDto;
 }
 
-export class SourcePriceDto {
-  @IsUUID() uuid: string;
-  @IsUUID() offerUuid: string;
-  @IsString() @Matches(/^\d{1,10}(\.\d{1,2})?$/) value: string;
-  @IsString() @Matches(/^[A-Z]{3}$/) currencyCode: string;
-}
-
 export class SourceOfferDto {
   @IsUUID() uuid: string;
   @IsUUID() storeProductUuid: string;
@@ -88,7 +94,6 @@ export class SourceOfferDto {
   @IsUUID() variantUuid: string;
   @IsIn(['active', 'disabled', 'archived']) status: string;
   @IsBoolean() showing: boolean;
-  @IsOptional() @ValidateNested() @Type(() => SourcePriceDto) currentPrice: SourcePriceDto | null;
   @IsArray()
   @ArrayMinSize(1)
   @ArrayUnique((r: SourceRecordDto) => r.uuid)

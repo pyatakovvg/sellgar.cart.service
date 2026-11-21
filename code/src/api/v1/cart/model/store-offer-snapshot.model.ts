@@ -16,13 +16,4 @@ export class StoreOfferSnapshotModel {
 
   @Column({ name: 'showing', type: 'boolean' })
   showing: boolean;
-
-  @Column({ name: 'price_uuid', type: 'uuid', nullable: true })
-  priceUuid: string | null;
-
-  @Column({ name: 'price_value', type: 'numeric', precision: 12, scale: 2, nullable: true })
-  priceValue: string | null;
-
-  @Column({ name: 'currency_code', type: 'varchar', length: 3, nullable: true })
-  currencyCode: string | null;
 }

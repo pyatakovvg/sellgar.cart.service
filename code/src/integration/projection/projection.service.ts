@@ -13,6 +13,8 @@ import {
   StorePayloadDto,
 } from './source-payload.dto';
 
+import { legacyStoreSnapshot, storePayload } from './store-payload';
+
 type Payload = InventoryPayloadDto | ProductPayloadDto | ShopPayloadDto | StorePayloadDto;
 type ApplyResult = 'processed' | 'ignored' | 'parked';
 
@@ -25,7 +27,7 @@ export class ProjectionService {
 
   async apply(input: unknown): Promise<ApplyResult> {
     const event = await integrationEvent(input);
-    const payload = await this.payload(event.aggregateType, event.payload);
+    const payload = await this.payload(event.aggregateType, event.payload, event.schemaVersion === 2);
     this.matches(event, payload);
 
     return this.source.transaction(async (manager) => {
@@ -77,20 +79,24 @@ export class ProjectionService {
   }
 
   async synchronize(kind: ProjectionKind, input: unknown): Promise<void> {
-    const payload = await this.payload(kind, input);
+    const payload = await this.payload(kind, input, kind === 'store_product' && legacyStoreSnapshot(input));
     await this.source.transaction(async (manager) => {
       await this.lock(manager, kind, payload.uuid);
       if (!(await this.parentsReady(manager, kind, payload)))
         throw new BadRequestException('Authoritative snapshot dependencies are missing');
       const current = await this.version(manager, kind, payload);
-      if (await this.write(manager, kind, payload, current)) await this.notify(manager, kind, payload, null);
+      if (await this.write(manager, kind, payload, current, true))
+        await this.notify(manager, kind, payload, null);
       await this.covered(manager, kind, payload.uuid, Math.max(current, payload.version));
     });
   }
 
-  private async payload(kind: ProjectionKind, input: unknown): Promise<Payload> {
+  private async payload(kind: ProjectionKind, input: unknown, legacy = false): Promise<Payload> {
     // Validate only the fields this consumer needs; the owner retains its full model.
-    const payload: Payload = await checked(sources[kind].type as new () => Payload, input);
+    const payload: Payload =
+      kind === 'store_product'
+        ? await storePayload(input, legacy)
+        : await checked(sources[kind].type as new () => Payload, input);
     if (kind === 'record_inventory') this.inventoryValid(payload as InventoryPayloadDto);
     if (kind === 'store_product') {
       const root = payload as StorePayloadDto;
@@ -98,8 +104,6 @@ export class ProjectionService {
       for (const offer of root.offers) {
         if (offer.storeProductUuid !== root.uuid || offer.productUuid !== root.productUuid)
           throw new BadRequestException('Offer belongs to another product');
-        if (offer.currentPrice && offer.currentPrice.offerUuid !== offer.uuid)
-          throw new BadRequestException('Price belongs to another offer');
         for (const record of offer.records) {
           if (
             records.has(record.uuid) ||
@@ -107,6 +111,8 @@ export class ProjectionService {
             record.inventory?.recordUuid !== record.uuid
           )
             throw new BadRequestException('Record identity mismatch');
+          if (record.currentPrice && record.currentPrice.recordUuid !== record.uuid)
+            throw new BadRequestException('Price belongs to another accounting record');
           records.add(record.uuid);
           this.inventoryValid(record.inventory);
         }
@@ -172,9 +178,11 @@ export class ProjectionService {
     kind: ProjectionKind,
     payload: Payload,
     current: number,
+    authoritative = false,
   ): Promise<boolean> {
     if (kind === 'record_inventory') return this.writeInventory(manager, payload as InventoryPayloadDto);
-    if (kind === 'store_product') return this.writeStore(manager, payload as StorePayloadDto, current);
+    if (kind === 'store_product')
+      return this.writeStore(manager, payload as StorePayloadDto, current, authoritative);
     if (payload.version <= current) return false;
     if (kind === 'shop') {
       const shop = payload as ShopPayloadDto;
@@ -218,6 +226,7 @@ export class ProjectionService {
     manager: EntityManager,
     product: StorePayloadDto,
     current: number,
+    authoritative: boolean,
   ): Promise<boolean> {
     let changed = product.version > current;
     if (changed) {
@@ -253,20 +262,10 @@ export class ProjectionService {
             previousOffer.variant_uuid !== offer.variantUuid)
         )
           throw new BadRequestException('Offer identity changed');
-        const price = offer.currentPrice;
         await manager.query(
-          `INSERT INTO store_offer_snapshot(uuid,store_product_uuid,variant_uuid,status,showing,price_uuid,price_value,currency_code)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(uuid) DO UPDATE SET status=EXCLUDED.status,showing=EXCLUDED.showing,price_uuid=EXCLUDED.price_uuid,price_value=EXCLUDED.price_value,currency_code=EXCLUDED.currency_code`,
-          [
-            offer.uuid,
-            product.uuid,
-            offer.variantUuid,
-            offer.status,
-            offer.showing,
-            price?.uuid ?? null,
-            price?.value ?? null,
-            price?.currencyCode ?? null,
-          ],
+          `INSERT INTO store_offer_snapshot(uuid,store_product_uuid,variant_uuid,status,showing)
+          VALUES ($1,$2,$3,$4,$5) ON CONFLICT(uuid) DO UPDATE SET status=EXCLUDED.status,showing=EXCLUDED.showing`,
+          [offer.uuid, product.uuid, offer.variantUuid, offer.status, offer.showing],
         );
         for (const record of offer.records) {
           const [previousRecord] = await manager.query(
@@ -276,13 +275,16 @@ export class ProjectionService {
           if (previousRecord && previousRecord.offer_uuid !== offer.uuid)
             throw new BadRequestException('Record identity changed');
           await manager.query(
-            `INSERT INTO accounting_record_snapshot(uuid,offer_uuid,article,clarifications) VALUES ($1,$2,$3,$4)
-            ON CONFLICT(uuid) DO UPDATE SET article=EXCLUDED.article,clarifications=EXCLUDED.clarifications`,
+            `INSERT INTO accounting_record_snapshot(uuid,offer_uuid,article,clarifications,price_uuid,price_value,currency_code) VALUES ($1,$2,$3,$4,$5,$6,$7)
+            ON CONFLICT(uuid) DO UPDATE SET article=EXCLUDED.article,clarifications=EXCLUDED.clarifications,price_uuid=EXCLUDED.price_uuid,price_value=EXCLUDED.price_value,currency_code=EXCLUDED.currency_code`,
             [
               record.uuid,
               offer.uuid,
               record.article,
               [...record.clarifications].sort((a, b) => a.position - b.position).map((c) => c.value),
+              record.currentPrice?.uuid ?? null,
+              record.currentPrice?.value ?? null,
+              record.currentPrice?.currencyCode ?? null,
             ],
           );
         }
@@ -292,6 +294,31 @@ export class ProjectionService {
         "UPDATE store_offer_snapshot SET status='archived' WHERE store_product_uuid=$1 AND NOT(uuid=ANY($2::uuid[]))",
         [product.uuid, product.offers.map((o) => o.uuid)],
       );
+    }
+    if (authoritative && product.version === current) {
+      // A storage migration can change price identities without changing the domain version.
+      // Only an authoritative snapshot may reconcile that same-version projection.
+      for (const offer of product.offers) {
+        for (const record of offer.records) {
+          const price = record.currentPrice;
+          const [, affected] = await manager.query(
+            `UPDATE accounting_record_snapshot ar SET price_uuid=$3,price_value=$4,currency_code=$5
+             FROM store_offer_snapshot o WHERE ar.uuid=$1 AND ar.offer_uuid=$2
+             AND o.uuid=ar.offer_uuid AND o.store_product_uuid=$6
+             AND (ar.price_uuid,ar.price_value,ar.currency_code) IS DISTINCT FROM ($3::uuid,$4::numeric,$5::varchar)
+             RETURNING ar.uuid`,
+            [
+              record.uuid,
+              offer.uuid,
+              price?.uuid ?? null,
+              price?.value ?? null,
+              price?.currencyCode ?? null,
+              product.uuid,
+            ],
+          );
+          if (affected > 0) changed = true;
+        }
+      }
     }
     // Inventory is a separate stream, including in an older Store Product snapshot.
     for (const offer of product.offers) {

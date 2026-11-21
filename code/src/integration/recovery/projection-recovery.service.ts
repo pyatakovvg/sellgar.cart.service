@@ -1,12 +1,11 @@
+import { legacyStoreSnapshot, storePayload } from '../projection/store-payload';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import { checked } from '../../common/checked';
 import { ProjectionKind } from '../projection/integration-event';
 import { ProjectionService } from '../projection/projection.service';
-import { StorePayloadDto } from '../projection/source-payload.dto';
 import { SourceGateway } from './source.gateway';
 
 @Injectable()
@@ -91,7 +90,7 @@ export class ProjectionRecoveryService implements OnModuleInit, OnModuleDestroy 
 
   private async storeProduct(product: any): Promise<void> {
     // Validate root first, before using its identifiers for owner requests.
-    product = await checked(StorePayloadDto, product);
+    product = await storePayload(product, legacyStoreSnapshot(product));
     await this.synchronize('shop', product.shopUuid);
     await this.synchronize('product', product.productUuid);
     await this.projections.synchronize('store_product', product);

@@ -49,7 +49,7 @@ describe('Cart PostgreSQL invariants', () => {
   const event = (kind: string, payload: any, version = payload.version) => ({
     eventUuid: randomUUID(),
     producer: kind === 'product' ? 'product_srv_v2' : kind === 'shop' ? 'shop_srv' : 'store_srv',
-    schemaVersion: kind === 'product' || kind === 'shop' ? 3 : 2,
+    schemaVersion: kind === 'record_inventory' ? 2 : 3,
     aggregateType: kind,
     aggregateUuid: payload.uuid,
     aggregateVersion: version,
@@ -90,6 +90,7 @@ describe('Cart PostgreSQL invariants', () => {
       uuid,
       offerUuid,
       article: `SKU-${uuid}`,
+      currentPrice: { uuid: priceUuid, recordUuid: uuid, value: '125.50', currencyCode: 'RUB' },
       clarifications: [{ position: 0, value: '250 г' }],
       inventory: { uuid: inventory, recordUuid: uuid, version: 1, quantity: 10, reserved: 2 },
     });
@@ -108,7 +109,6 @@ describe('Cart PostgreSQL invariants', () => {
           variantUuid,
           status: 'active',
           showing: true,
-          currentPrice: { uuid: priceUuid, offerUuid, value: '125.50', currencyCode: 'RUB' },
           records: [record(recordUuid, inventoryUuid), record(secondRecordUuid, secondInventoryUuid)],
         },
       ],
@@ -194,8 +194,8 @@ describe('Cart PostgreSQL invariants', () => {
 
   it('rejects a partially populated price at the database boundary', async () => {
     await expect(
-      db.query('UPDATE store_offer_snapshot SET price_value=NULL WHERE uuid=$1', [fixture.offerUuid]),
-    ).rejects.toThrow('store_offer_snapshot_price_ck');
+      db.query('UPDATE accounting_record_snapshot SET price_value=NULL WHERE uuid=$1', [fixture.recordUuid]),
+    ).rejects.toThrow('accounting_record_snapshot_price_ck');
   });
 
   it('creates one cart on concurrent first access, isolated by owner and shop', async () => {
@@ -341,16 +341,69 @@ describe('Cart PostgreSQL invariants', () => {
     await projections.apply(event('record_inventory', inventory));
     expect((await view()).items[0].message).toBe('Нет в наличии');
     fixture.store.version = 2;
-    fixture.store.offers[0].currentPrice.value = '0.00';
+    fixture.store.offers[0].records[0].currentPrice.value = '0.00';
     await projections.apply(event('store_product', fixture.store));
     expect((await view()).items[0].price?.value).toBe('0.00');
     const noPrice = JSON.parse(JSON.stringify(fixture.store));
     noPrice.version = 3;
-    noPrice.offers[0].currentPrice = null;
+    noPrice.offers[0].records[0].currentPrice = null;
     await projections.apply(event('store_product', noPrice));
     item = (await view()).items[0];
     expect(item.reasons).toContain('price_missing');
     expect((await view()).itemsTotal).toBeNull();
+  });
+
+  it('keeps different prices and reprices only the changed accounting record', async () => {
+    await add(2);
+    await add(1, fixture.secondRecordUuid);
+    fixture.store.version++;
+    fixture.store.offers[0].records[1].currentPrice = {
+      uuid: randomUUID(),
+      recordUuid: fixture.secondRecordUuid,
+      value: '300.00',
+      currencyCode: 'RUB',
+    };
+    const incoming = event('store_product', fixture.store);
+    expect(await projections.apply(incoming)).toBe('processed');
+    expect(await projections.apply(incoming)).toBe('ignored');
+    let cart = await view();
+    expect(cart.items.find((item) => item.recordUuid === fixture.recordUuid)?.price?.value).toBe('125.50');
+    expect(cart.items.find((item) => item.recordUuid === fixture.secondRecordUuid)?.price?.value).toBe(
+      '300.00',
+    );
+    expect(cart.itemsTotal).toBe('551.00');
+    fixture.store.offers[0].records[1].currentPrice.uuid = randomUUID();
+    await projections.synchronize('store_product', fixture.store);
+    cart = await view();
+    expect(cart.items.find((item) => item.recordUuid === fixture.secondRecordUuid)?.price?.uuid).toBe(
+      fixture.store.offers[0].records[1].currentPrice.uuid,
+    );
+    const [before] = await db.query('SELECT count(*)::int AS count FROM outbox_event');
+    await projections.synchronize('store_product', fixture.store);
+    const [after] = await db.query('SELECT count(*)::int AS count FROM outbox_event');
+    expect(after.count).toBe(before.count);
+    const stale = structuredClone(fixture.store);
+    stale.version--;
+    stale.offers[0].records[1].currentPrice.value = '1.00';
+    await projections.synchronize('store_product', stale);
+    expect((await view()).itemsTotal).toBe('551.00');
+  });
+
+  it('accepts queued legacy Store events and then record-priced snapshots', async () => {
+    const legacy = structuredClone(fixture.store) as any;
+    legacy.version++;
+    legacy.offers[0].currentPrice = {
+      ...legacy.offers[0].records[0].currentPrice,
+      offerUuid: fixture.offerUuid,
+    };
+    for (const record of legacy.offers[0].records) delete record.currentPrice;
+    await projections.apply({ ...event('store_product', legacy), schemaVersion: 2 });
+    await add();
+    expect((await view()).items[0].price?.value).toBe('125.50');
+    fixture.store.version = legacy.version + 1;
+    fixture.store.offers[0].records[0].currentPrice.value = '200.00';
+    await projections.apply(event('store_product', fixture.store));
+    expect((await view()).items[0].price?.value).toBe('200.00');
   });
 
   it('never rolls inventory back from a newer store-product event', async () => {
@@ -363,7 +416,7 @@ describe('Cart PostgreSQL invariants', () => {
     };
     await projections.apply(event('record_inventory', inventory));
     fixture.store.version = 2;
-    fixture.store.offers[0].currentPrice.value = '130.00';
+    fixture.store.offers[0].records[0].currentPrice.value = '130.00';
     await projections.apply(event('store_product', fixture.store));
     expect((await view()).items[0]).toMatchObject({ available: 5, price: { value: '130.00' } });
     await projections.synchronize('store_product', {
